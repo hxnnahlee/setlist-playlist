@@ -1,218 +1,277 @@
 import base64
-import random
-import string
-
-from flask import Flask, redirect, request, make_response, render_template
 import requests
-from urllib.parse import quote
+from flask import Flask, redirect, request, session
+import os
+from dotenv import load_dotenv
 
 app = Flask(__name__)
-
-# todo , clients secrets
-CLIENT_ID = 'X'
-CLIENT_SECRET = 'X'
-REDIRECT_URI = 'http://127.0.0.1:5000/callback'
+app.secret_key = "dev"  # required for session
+load_dotenv()
 
 
-def generate_random_string(length):
-    return ''.join(random.choices(string.ascii_letters + string.digits, k=length))
+CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
+CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
+SETLIST_API_KEY = os.getenv("SETLIST_API_KEY")
+
+if not CLIENT_ID or not CLIENT_SECRET:
+    raise Exception("Missing Spotify credentials")
+
+if not SETLIST_API_KEY:
+    raise Exception("Missing Setlist API key")
+
+REDIRECT_URI = "http://127.0.0.1:5000/callback"
+
+SPOTIFY_AUTH_URL = "https://accounts.spotify.com/authorize"
+SPOTIFY_TOKEN_URL = "https://accounts.spotify.com/api/token"
 
 
-@app.route('/')
+@app.route("/")
 def home():
-    return "<p>Hello, World!</p>"
+    return """
+    <html>
+      <head>
+        <title>Setlist → Playlist</title>
+        <style>
+          body {
+            font-family: Arial;
+            text-align: center;
+            margin-top: 100px;
+            background: #fff9fb;
+          }
+          input {
+            padding: 10px;
+            width: 250px;
+            border-radius: 8px;
+            border: 1px solid #ddd;
+          }
+          button {
+            padding: 10px 16px;
+            border-radius: 8px;
+            border: none;
+            background: #e11d48;
+            color: white;
+            cursor: pointer;
+          }
+        </style>
+      </head>
+      <body>
+        <h2>🎶 Setlist → Spotify Playlist</h2>
+
+        <form action="/create-playlist" method="get">
+          <input name="artistName" placeholder="enter artist (e.g. drake)" />
+          <br><br>
+          <button type="submit">create playlist</button>
+        </form>
+
+        <br><br>
+
+        <a href="/login">login with spotify</a>
+      </body>
+    </html>
+    """
 
 
-@app.route('/authorize')
-def authorize():
-    state = generate_random_string(16)
+# 🔐 login
+@app.route("/login")
+def login():
     scope = "playlist-modify-public playlist-modify-private"
-    response = make_response(redirect(
-        f'https://accounts.spotify.com/authorize?response_type=code&client_id={CLIENT_ID}&scope={scope}&redirect_uri={REDIRECT_URI}&state={state}'))
-    response.set_cookie('spotify_auth_state', state)
-    print(response.data)
-    return response
 
-
-@app.route('/callback')
-def callback():
-    code = request.args.get('code') or None
-    state = request.args.get('state') or None
-    stored_state = request.cookies.get('spotify_auth_state') or None
-
-    if state is None or state != stored_state:
-        return redirect(f'/#error=state_mismatch')
-    else:
-        auth_options = {
-            'url': 'https://accounts.spotify.com/api/token',
-            'data': {
-                'code': code,
-                'redirect_uri': REDIRECT_URI,
-                'grant_type': 'authorization_code',
-            },
-            'headers': {
-                'Authorization': f'Basic {base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode("utf-8")).decode("utf-8")}',
-            },
-            'json': True,
-        }
-
-        response = requests.post(**auth_options)
-
-        if response.status_code == 200:
-            access_token = response.json()['access_token']
-            refresh_token = response.json()['refresh_token']
-
-            options = {
-                'url': 'https://api.spotify.com/v1/me',
-                'headers': {
-                    'Authorization': f'Bearer {access_token}',
-                }
-            }
-            response = requests.get(**options)
-
-            return {
-                "access_token": access_token,
-                "refresh_token": refresh_token
-            }
-        else:
-            return "<p>Error getting response from Spotify</p>"
-
-
-@app.route('/create-playlist')
-def create_playlist():
-    setlist_url_artists = "https://api.setlist.fm/rest/1.0/search/artists"
-
-    # Spotify API URL
-    spotify_url = "https://api.spotify.com/v1/users"
-    spotify_url_add_playlists_songs = "https://api.spotify.com/v1/playlists"
-
-    # Setlist.fm API key
-    setlist_api_key = "fdWm07co_W95TJt1rRV1qFG189A15zSql2Bh"
-
-    # Spotify API key
-    spotify_api_key = request.headers.get('access-token')
-
-    # Spotify user ID
-    spotify_user_id = "hxnnahlee"
-
-    # Setlist.fm API request headers
-    setlist_headers = {
-        "Accept": "application/json",
-        "x-api-key": setlist_api_key
-    }
-
-    # Spotify API request headers
-    spotify_headers = {
-        'Authorization': f'Bearer {spotify_api_key}',
-        "Content-Type": "application/json"
-    }
-
-    artist_query_params = {
-        "artistName": request.args.get('artistName')
-    }
-
-    artists_response = requests.get(
-        setlist_url_artists, headers=setlist_headers, params=artist_query_params
+    return redirect(
+        f"{SPOTIFY_AUTH_URL}?response_type=code"
+        f"&client_id={CLIENT_ID}"
+        f"&scope={scope}"
+        f"&redirect_uri={REDIRECT_URI}"
     )
 
-    mbid = ""
-    if artists_response.status_code == 200:
-        # print(artists_response.json().get("artist"))
-        # TODO: FIX THIS DO NOT GRAB FIRST ARTIST
-        fetched_artists_list = artists_response.json().get("artist")
-        filtered_artists_list = [
-            artist for artist in fetched_artists_list if artist.get('name').lower().strip() == artist_query_params.get("artistName").lower().strip()]
-        print(filtered_artists_list)
-        mbid = filtered_artists_list[0].get("mbid")
 
-        print(mbid)
-    else:
-        print("Error looking up artist")
+# 🔄 callback
+@app.route("/callback")
+def callback():
+    code = request.args.get("code")
 
-    # Setlist.fm API URL
-    setlist_url = f"https://api.setlist.fm/rest/1.0/artist/{mbid}/setlists"
+    auth_header = base64.b64encode(
+        f"{CLIENT_ID}:{CLIENT_SECRET}".encode()
+    ).decode()
 
-    # Make a request to the Setlist.fm API to get the list of setlists for a specified artist
-    setlist_response = requests.get(
-        setlist_url, headers=setlist_headers)
+    response = requests.post(
+        SPOTIFY_TOKEN_URL,
+        data={
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": REDIRECT_URI,
+        },
+        headers={
+            "Authorization": f"Basic {auth_header}",
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
+    )
 
-    # Grab the array of setlists (ie, from all concerts) from the original response
-    setlists = setlist_response.json()["setlist"]
+    data = response.json()
 
-    # Filter out any setlists that have empty sets..
-    setlists_filtered = [
-        setlst for setlst in setlists if setlst.get('sets') and setlst.get('sets').get('set')]
+    session["access_token"] = data.get("access_token")
 
-    # For now grab the first setlist....
-    # TODO fix this.
-    selected_setlist = setlists_filtered[0]
+    return '<a href="/create-playlist?artistName=beyonce">create playlist</a>'
 
-    # Create a list of songs from the setlist
-    songs = []
+@app.route("/create-playlist")
+def create_playlist():
+    access_token = session.get("access_token")
 
-    # TODO FIX THIS, DO NOT JUST GRAB THE FIRST SET, MUST GO THRU ALL SETS AND ADD SONGS FROM ALL SETS
-    for song in selected_setlist.get('sets').get('set')[0].get('song'):
-        songs.append(song["name"])
+    if not access_token:
+        return redirect("/login")
 
-    print(songs)
+    artist_name = request.args.get("artistName")
 
-    # Create a new playlist in Spotify
-    playlist_data = {
-        "name": artist_query_params.get("artistName") + " Setlist",
-        "description": artist_query_params.get("artistName") + " Setlist",
-        "public": True
+
+    setlist_headers = {
+        "Accept": "application/json",
+        "x-api-key": SETLIST_API_KEY
     }
 
-    playlists_url = spotify_url + "/" + spotify_user_id + "/playlists"
-    playlist_response = requests.post(
-        playlists_url, headers=spotify_headers, json=playlist_data)
+    # 🔍 get artist mbid
+    artist_res = requests.get(
+        "https://api.setlist.fm/rest/1.0/search/artists",
+        headers=setlist_headers,
+        params={"artistName": artist_name}
+    )
 
-    # Get the playlist ID from the response
-    playlist_id = playlist_response.json()["id"]
+    artists = artist_res.json().get("artist", [])
+    if not artists:
+        return {"error": "artist not found"}, 404
 
-    # Add the songs to the playlist
-    for song in songs:
-        search_url = "https://api.spotify.com/v1/search"
-        search_params = {
-            "q": quote('track:' + song + ' artist:' + artist_query_params.get("artistName")),
-            "type": "track",
-            "limit": 50
+    artists = artist_res.json().get("artist", [])
+
+    # normalize helper
+    def normalize(name):
+        return name.lower().strip().replace("é", "e")
+
+    target = normalize(artist_name)
+
+    # filter exact matches only
+    filtered = [
+        a for a in artists
+        if normalize(a["name"]) == target
+    ]
+
+    if not filtered:
+        return {"error": "exact artist not found"}, 404
+
+    mbid = filtered[0]["mbid"]
+
+    # 🎤 get setlists
+    setlist_res = requests.get(
+        f"https://api.setlist.fm/rest/1.0/artist/{mbid}/setlists",
+        headers=setlist_headers
+    )
+    print(setlist_res, flush=True)
+
+    setlists = setlist_res.json().get("setlist", [])
+
+    if not setlists:
+        return {"error": artists}, 404
+
+    # 🎤 find first setlist with actual songs
+    selected_setlist = None
+
+    for s in setlists:
+        sets = s.get("sets", {}).get("set", [])
+        songs = []
+
+        for set_block in sets:
+            songs.extend([song["name"] for song in set_block.get("song", [])])
+
+        if songs:
+            selected_setlist = s
+            break
+
+    # 🚨 if none found
+    if not selected_setlist:
+        return """
+        <h3>no populated setlist found 😢</h3>
+        <a href="/">try another artist</a>
+        """, 404    
+    # 🎶 extract songs
+    songs = []
+    for s in selected_setlist.get("sets", {}).get("set", []):
+        for song in s.get("song", []):
+            songs.append(song["name"])
+
+    # 👤 get Spotify user
+    user_res = requests.get(
+        "https://api.spotify.com/v1/me",
+        headers={"Authorization": f"Bearer {access_token}"}
+    )
+    user_id = user_res.json()["id"]
+
+    # 🎧 create playlist
+    playlist_res = requests.post(
+        f"https://api.spotify.com/v1/users/{user_id}/playlists",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        },
+        json={
+            "name": f"{artist_name} Setlist",
+            "public": True
         }
-        print('track:' + song + ' artist:' +
-              artist_query_params.get("artistName"))
+    )
 
-        # Search for the track with the given artist
-        search_response = requests.get(
-            search_url, headers=spotify_headers, params=search_params)
+    if playlist_res.status_code != 201:
+        return {
+            "error": "failed to create playlist",
+            "details": playlist_res.text
+        }, 500
+    playlist_id = playlist_res.json()["id"]
 
-        # List of song objects
-        track_list = search_response.json()["tracks"]["items"]
+    # ➕ add songs
+    for song in songs:
+        search_res = requests.get(
+            "https://api.spotify.com/v1/search",
+            headers={"Authorization": f"Bearer {access_token}"},
+            params={
+                "q": f"track:{song} artist:{artist_name}",
+                "type": "track",
+                "limit": 1
+            }
+        )
 
-        # Get the correct song that matches the title and artist
-        # TODO: FIGURE OUT WHY SEARCH API SOMETIMES DOESN'T RETURN THE RIGHT SONG AT ALL
-        track = next(
-            (track for track in track_list if track["name"].lower().strip() == song.lower().strip(
-            ) and track["artists"][0]["name"].lower().strip() == artist_query_params.get("artistName").lower().strip()),
-            None)
-        print(track)
-        if track:
-            requests.post(spotify_url_add_playlists_songs + "/" + playlist_id + "/tracks",
-                          headers=spotify_headers, json={"uris": [track["uri"]]})
-        else:
-            print("Couldn't find track " + song + ", skipping")
-            for track in track_list:
-                print(track["name"])
-                print(track["name"].lower().strip())
-                # print(song)
-                # print(song.lower().strip())
-                print(track["artists"][0]["name"])
-                print(track["artists"][0]["name"].lower().strip())
+        # 🚨 check search request
+        if search_res.status_code != 200:
+            return {
+                "error": "spotify search failed",
+                "song": song,
+                "details": search_res.text
+            }, 500
+
+        data = search_res.json()
+        tracks = data.get("tracks", {}).get("items", [])
+
+        if not tracks:
+            print(f"skipping song (not found): {song}", flush=True)
             continue
 
-    print("Playlist created successfully!")
+        track_uri = tracks[0]["uri"]
 
-    return ""
+        add_res = requests.post(
+            f"https://api.spotify.com/v1/playlists/{playlist_id}/tracks",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            },
+            json={"uris": [track_uri]}
+        )
 
+        # 🚨 check add-to-playlist request
+        if add_res.status_code not in (200, 201):
+            return {
+                "error": "failed to add song to playlist",
+                "song": song,
+                "details": add_res.text
+            }, 500
 
-if __name__ == '__main__':
-    app.run()
+    return f"""
+    <h2>playlist created 🎉</h2>
+    <p>artist: {artist_name}</p>
+    <a href="/">go back</a>
+    """
+if __name__ == "__main__":
+    app.run(debug=True)
