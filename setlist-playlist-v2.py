@@ -32,12 +32,12 @@ STYLES = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Figtree:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
       *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
       body {
-        font-family: 'Quicksand', sans-serif;
+        font-family: 'Figtree', sans-serif;
         min-height: 100vh;
         display: flex;
         align-items: center;
@@ -51,16 +51,17 @@ STYLES = """
         padding: 48px 44px;
         background: #ddd6fe;
         border: 1px solid #c4b5fd;
-        border-radius: 28px;
+        border-radius: 4px;
         text-align: center;
         box-shadow: 0 8px 32px rgba(109, 40, 217, 0.18), 0 2px 8px rgba(109,40,217,0.08);
       }
 
       h1 {
+        font-family: 'DM Serif Display', serif;
         color: #3b0764;
-        font-size: 1.9rem;
-        font-weight: 700;
-        letter-spacing: -0.2px;
+        font-size: 2rem;
+        font-weight: 400;
+        letter-spacing: -0.3px;
         margin-bottom: 6px;
       }
 
@@ -76,9 +77,9 @@ STYLES = """
         padding: 13px 16px;
         background: #fff;
         border: 1.5px solid #c4b5fd;
-        border-radius: 14px;
+        border-radius: 4px;
         color: #3b0764;
-        font-family: 'Quicksand', sans-serif;
+        font-family: 'Figtree', sans-serif;
         font-size: 0.9rem;
         font-weight: 500;
         outline: none;
@@ -94,9 +95,9 @@ STYLES = """
         margin-top: 10px;
         background: linear-gradient(135deg, #a855f7 0%, #7c3aed 100%);
         border: none;
-        border-radius: 14px;
+        border-radius: 4px;
         color: #fff;
-        font-family: 'Quicksand', sans-serif;
+        font-family: 'Figtree', sans-serif;
         font-size: 0.92rem;
         font-weight: 700;
         cursor: pointer;
@@ -119,6 +120,13 @@ STYLES = """
       }
       .btn-ghost:hover { color: #3b0764; }
 
+      .connected {
+        margin-top: 18px;
+        color: #6d28d9;
+        font-size: 0.82rem;
+        font-weight: 600;
+      }
+
       .error {
         margin-top: 18px;
         color: #be123c;
@@ -135,6 +143,35 @@ STYLES = """
         margin-bottom: 28px;
         font-weight: 500;
       }
+
+      .loading-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: #faf7f4;
+        z-index: 100;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 20px;
+      }
+      .loading-overlay.active { display: flex; }
+      .loading-overlay h2 { color: #3b0764; font-size: 1.5rem; font-weight: 700; }
+      .loading-overlay p  { color: #6d28d9; font-size: 0.875rem; font-weight: 500; }
+      .dots span {
+        display: inline-block;
+        width: 10px; height: 10px;
+        margin: 0 4px;
+        background: #a855f7;
+        border-radius: 50%;
+        animation: bounce 1.2s infinite ease-in-out;
+      }
+      .dots span:nth-child(2) { animation-delay: 0.2s; }
+      .dots span:nth-child(3) { animation-delay: 0.4s; }
+      @keyframes bounce {
+        0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+        40%            { transform: scale(1);   opacity: 1; }
+      }
     </style>
 """
 
@@ -142,6 +179,12 @@ STYLES = """
 def home():
     error = request.args.get("error", "")
     error_html = f'<p class="error">{html.escape(error)}</p>' if error else ""
+    is_connected = bool(session.get("access_token"))
+    spotify_html = (
+        '<p class="connected">spotify connected ✓</p><a class="btn-ghost" href="/logout">log out</a>'
+        if is_connected else
+        '<a class="btn-ghost" href="/login">connect spotify 🔗</a>'
+    )
     return f"""
     <html>
       <head><title>Setlist → Playlist</title>{STYLES}</head>
@@ -149,17 +192,35 @@ def home():
         <div class="card">
           <h1>setlist → playlist</h1>
           <p class="subtitle">turn a live setlist into a spotify playlist</p>
-          <form action="/create-playlist" method="get">
+          <form id="mainForm" action="/create-playlist" method="get">
             <input name="artistName" placeholder="✦ artist name" autocomplete="off" />
             <button class="btn" type="submit">create playlist 🎧</button>
           </form>
-          <a class="btn-ghost" href="/login">connect spotify 🔗</a>
+          {spotify_html}
           {error_html}
         </div>
+
+        <div class="loading-overlay" id="loader">
+          <div class="dots">
+            <span></span><span></span><span></span>
+          </div>
+          <h2>building your playlist</h2>
+        </div>
+
+        <script>
+          document.getElementById('mainForm').addEventListener('submit', function() {{
+            document.getElementById('loader').classList.add('active');
+          }});
+        </script>
       </body>
     </html>
     """
 
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect("/")
 
 # 🔐 login
 @app.route("/login")
@@ -205,6 +266,8 @@ def callback():
     session["access_token"] = data.get("access_token")
 
     artist_name = session.get("artist_name", "")
+    if not artist_name:
+        return redirect("/")
     encoded_name = urllib.parse.quote_plus(artist_name)
     return redirect(f"/create-playlist?artistName={encoded_name}")
 
@@ -310,17 +373,26 @@ def create_playlist():
         </html>
         """, 404
 
-    # 🎶 extract songs
+    # 🎶 extract songs (keep full objects to access cover artist)
     songs = []
     for s in selected_setlist.get("sets", {}).get("set", []):
         for song in s.get("song", []):
-            songs.append(song["name"])
+            songs.append(song)
+
+    def spotify_expired(res):
+        if res.status_code == 401:
+            session.pop("access_token", None)
+            session["artist_name"] = artist_name
+            return True
+        return False
 
     # 👤 get Spotify user
     user_res = requests.get(
         "https://api.spotify.com/v1/me",
         headers={"Authorization": f"Bearer {access_token}"}
     )
+    if spotify_expired(user_res):
+        return redirect(f"/login?artistName={urllib.parse.quote_plus(artist_name)}")
     if user_res.status_code != 200:
         return redirect("/?error=Could+not+get+Spotify+user")
     user_id = user_res.json()["id"]
@@ -334,6 +406,8 @@ def create_playlist():
         },
         json={"name": f"{artist_name} Setlist", "public": True}
     )
+    if spotify_expired(playlist_res):
+        return redirect(f"/login?artistName={urllib.parse.quote_plus(artist_name)}")
     if playlist_res.status_code != 201:
         return redirect("/?error=Failed+to+create+Spotify+playlist")
     playlist_id = playlist_res.json()["id"]
@@ -341,24 +415,26 @@ def create_playlist():
     # ➕ search for each song and collect URIs
     track_uris = []
     for song in songs:
+        song_name = song["name"]
+        search_artist = song.get("cover", {}).get("name") or artist_name
         search_res = requests.get(
             "https://api.spotify.com/v1/search",
             headers={"Authorization": f"Bearer {access_token}"},
             params={
-                "q": f"track:{song} artist:{artist_name}",
+                "q": f"track:{song_name} artist:{search_artist}",
                 "type": "track",
                 "limit": 1
             }
         )
         if search_res.status_code != 200:
-            print(f"search failed for: {song}", flush=True)
+            print(f"search failed for: {song_name}", flush=True)
             continue
 
         tracks = search_res.json().get("tracks", {}).get("items", [])
         if tracks:
             track_uris.append(tracks[0]["uri"])
         else:
-            print(f"not found on Spotify: {song}", flush=True)
+            print(f"not found on Spotify: {song_name} by {search_artist}", flush=True)
 
     # add all tracks in one request (Spotify allows up to 100)
     if track_uris:
@@ -393,4 +469,5 @@ def success():
     """
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(debug=False, host="0.0.0.0", port=port)
