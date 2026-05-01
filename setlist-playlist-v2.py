@@ -393,6 +393,8 @@ def create_playlist():
     )
     if spotify_expired(user_res):
         return redirect(f"/login?artistName={urllib.parse.quote_plus(artist_name)}")
+    if user_res.status_code == 403:
+        return redirect("/?error=Your+Spotify+account+isn%27t+authorized+for+this+app+yet")
     if user_res.status_code != 200:
         return redirect("/?error=Could+not+get+Spotify+user")
     user_id = user_res.json()["id"]
