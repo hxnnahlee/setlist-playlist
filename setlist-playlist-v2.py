@@ -22,7 +22,7 @@ if not CLIENT_ID or not CLIENT_SECRET:
 if not SETLIST_API_KEY:
     raise Exception("Missing Setlist API key")
 
-REDIRECT_URI = "http://127.0.0.1:5000/callback"
+REDIRECT_URI = os.environ.get("REDIRECT_URI", "http://127.0.0.1:5000/callback")
 
 SPOTIFY_AUTH_URL = "https://accounts.spotify.com/authorize"
 SPOTIFY_TOKEN_URL = "https://accounts.spotify.com/api/token"
