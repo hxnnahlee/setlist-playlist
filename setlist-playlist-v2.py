@@ -304,6 +304,8 @@ def create_playlist():
             headers=setlist_headers,
             params={"artistName": artist_name, "p": page}
         )
+        if artist_res.status_code == 429:
+            return redirect("/?error=Too+many+requests+—+please+try+again+in+a+moment")
         if artist_res.status_code != 200:
             print(f"[setlist.fm] artist search failed — status={artist_res.status_code} body={artist_res.text[:300]}", flush=True)
             return redirect("/?error=Setlist.fm+search+failed")
@@ -342,6 +344,8 @@ def create_playlist():
             if setlists:
                 print(f"[setlist.fm] found {len(setlists)} setlists for mbid={mbid}", flush=True)
                 break
+        elif setlist_res.status_code == 429:
+            return redirect("/?error=Too+many+requests+—+please+try+again+in+a+moment")
         else:
             print(f"[setlist.fm] setlists failed — mbid={mbid} status={setlist_res.status_code} body={setlist_res.text[:200]}", flush=True)
         time.sleep(1)
