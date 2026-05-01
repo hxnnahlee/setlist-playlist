@@ -305,7 +305,7 @@ def create_playlist():
             params={"artistName": artist_name, "p": page}
         )
         if artist_res.status_code != 200:
-            print(f"setlist.fm error: {artist_res.status_code} {artist_res.text[:300]}", flush=True)
+            print(f"[setlist.fm] artist search failed — status={artist_res.status_code} body={artist_res.text[:300]}", flush=True)
             return redirect("/?error=Setlist.fm+search+failed")
 
         data = artist_res.json()
@@ -333,7 +333,6 @@ def create_playlist():
     # 🎤 try each matching mbid until we find one with setlists
     setlists = []
     for mbid in mbids:
-        print(f"trying mbid: {mbid}", flush=True)
         setlist_res = requests.get(
             f"https://api.setlist.fm/rest/1.0/artist/{mbid}/setlists",
             headers=setlist_headers
@@ -341,8 +340,10 @@ def create_playlist():
         if setlist_res.status_code == 200:
             setlists = setlist_res.json().get("setlist", [])
             if setlists:
-                print(f"found {len(setlists)} setlists for mbid {mbid}", flush=True)
+                print(f"[setlist.fm] found {len(setlists)} setlists for mbid={mbid}", flush=True)
                 break
+        else:
+            print(f"[setlist.fm] setlists failed — mbid={mbid} status={setlist_res.status_code} body={setlist_res.text[:200]}", flush=True)
         time.sleep(1)
 
     if not setlists:
@@ -394,8 +395,10 @@ def create_playlist():
     if spotify_expired(user_res):
         return redirect(f"/login?artistName={urllib.parse.quote_plus(artist_name)}")
     if user_res.status_code == 403:
+        print(f"[spotify] 403 on /me — body={user_res.text[:200]}", flush=True)
         return redirect("/?error=Your+Spotify+account+isn%27t+authorized+for+this+app+yet")
     if user_res.status_code != 200:
+        print(f"[spotify] /me failed — status={user_res.status_code} body={user_res.text[:200]}", flush=True)
         return redirect("/?error=Could+not+get+Spotify+user")
     user_id = user_res.json()["id"]
 
@@ -411,6 +414,7 @@ def create_playlist():
     if spotify_expired(playlist_res):
         return redirect(f"/login?artistName={urllib.parse.quote_plus(artist_name)}")
     if playlist_res.status_code != 201:
+        print(f"[spotify] create playlist failed — status={playlist_res.status_code} body={playlist_res.text[:200]}", flush=True)
         return redirect("/?error=Failed+to+create+Spotify+playlist")
     playlist_id = playlist_res.json()["id"]
 
