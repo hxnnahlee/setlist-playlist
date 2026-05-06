@@ -1,4 +1,5 @@
 import base64
+import difflib
 import html
 import time
 import urllib.parse
@@ -318,9 +319,12 @@ def create_playlist():
             break
 
         for a in artists:
-            if normalize(a["name"]) == target and a["mbid"] not in seen:
+            if a["mbid"] in seen:
+                continue
+            score = difflib.SequenceMatcher(None, normalize(a["name"]), target).ratio()
+            if score >= 0.8:
                 seen.add(a["mbid"])
-                mbids.append(a["mbid"])
+                mbids.append((score, a["mbid"]))
 
         total = data.get("total", 0)
         items_per_page = data.get("itemsPerPage", 30)
@@ -329,6 +333,9 @@ def create_playlist():
 
         page += 1
         time.sleep(1)
+
+    mbids.sort(reverse=True)  # best match first
+    mbids = [mbid for _, mbid in mbids]
 
     if not mbids:
         return redirect("/?error=Artist+not+found+on+setlist.fm")
