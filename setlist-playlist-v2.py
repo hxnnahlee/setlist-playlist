@@ -428,7 +428,9 @@ def create_playlist():
     if playlist_res.status_code != 201:
         print(f"[spotify] create playlist failed — status={playlist_res.status_code} body={playlist_res.text[:200]}", flush=True)
         return redirect("/?error=Failed+to+create+Spotify+playlist")
-    playlist_id = playlist_res.json()["id"]
+    playlist_data = playlist_res.json()
+    playlist_id = playlist_data["id"]
+    playlist_url = playlist_data.get("external_urls", {}).get("spotify", "")
 
     # ➕ search for each song and collect URIs
     track_uris = []
@@ -467,12 +469,14 @@ def create_playlist():
         if add_res.status_code not in (200, 201):
             return redirect("/?error=Failed+to+add+songs+to+playlist")
 
-    return redirect(f"/success?artist={urllib.parse.quote_plus(artist_name)}")
+    return redirect(f"/success?artist={urllib.parse.quote_plus(artist_name)}&playlist={urllib.parse.quote_plus(playlist_url)}")
 
 
 @app.route("/success")
 def success():
     artist_name = request.args.get("artist", "")
+    playlist_url = request.args.get("playlist", "")
+    open_btn = f'<a class="btn" href="{html.escape(playlist_url)}" target="_blank">open in spotify 🎧</a>' if playlist_url else ""
     return f"""
     <html>
       <head><title>Playlist created!</title>{STYLES}</head>
@@ -480,6 +484,7 @@ def success():
         <div class="card">
           <h1>playlist created!</h1>
           <p class="artist-name">{html.escape(artist_name)} ✨</p>
+          {open_btn}
           <a class="btn" href="/">make another 💜</a>
         </div>
       </body>
