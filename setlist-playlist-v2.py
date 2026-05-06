@@ -192,7 +192,7 @@ def home():
       <body>
         <div class="card">
           <h1>setlist → playlist</h1>
-          <p class="subtitle">turn a live setlist into a spotify playlist</p>
+          <p class="subtitle">turn a setlist into a spotify playlist</p>
           <form id="mainForm" action="/create-playlist" method="get">
             <input name="artistName" placeholder="✦ artist name" autocomplete="off" />
             <button class="btn" type="submit">create playlist 🎧</button>
@@ -354,13 +354,13 @@ def create_playlist():
     if not setlists:
         return redirect("/?error=No+setlists+found+for+this+artist")
 
-    # 🎤 find first setlist with actual songs
+    # 🎤 find first setlist with at least 4 songs
     selected_setlist = None
     for s in setlists:
         songs = []
         for set_block in s.get("sets", {}).get("set", []):
             songs.extend([song["name"] for song in set_block.get("song", [])])
-        if songs:
+        if len(songs) >= 4:
             selected_setlist = s
             break
 
